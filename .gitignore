@@ -33,3 +33,8 @@ logs/
 *.pem
 *.key
 !certs/.gitkeep
+
+# Local planning / private docs (keep on disk, not in public repo)
+Docs/DescrShot.md
+Docs/todoList.md
+Docs/userManual.md
