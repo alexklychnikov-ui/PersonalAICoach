@@ -12,9 +12,65 @@ def api(method: str, path: str, **kwargs):
     with httpx.Client(timeout=120) as client:
         resp = client.request(method, url, **kwargs)
     if resp.status_code >= 400:
-        st.error(f"{method} {path}: {resp.status_code} {resp.text}")
+        detail = resp.text
+        try:
+            payload = resp.json()
+            if isinstance(payload, dict) and payload.get("detail"):
+                detail = str(payload["detail"])
+        except Exception:  # noqa: BLE001
+            pass
+        st.error(detail)
         return None
     return resp.json()
+
+
+_GAP_IMPORTANCE_RU = {
+    "critical": "критично",
+    "important": "важно",
+    "nice-to-have": "желательно",
+    "nice_to_have": "желательно",
+}
+
+
+def render_skill_gap_report(report: dict) -> None:
+    score = report.get("match_score")
+    if score is not None:
+        st.metric("Совпадение с заказом", f"{score} из 100")
+
+    summary = (report.get("summary") or "").strip()
+    if summary:
+        st.subheader("Краткий вывод")
+        st.write(summary)
+
+    strengths = report.get("strengths") or []
+    if strengths:
+        st.subheader("Сильные стороны")
+        for line in strengths:
+            st.markdown(f"- {line}")
+
+    gaps = report.get("gaps") or []
+    if gaps:
+        st.subheader("Чего не хватает")
+        for gap in gaps:
+            if isinstance(gap, dict):
+                skill = gap.get("skill") or "—"
+                importance = _GAP_IMPORTANCE_RU.get(
+                    str(gap.get("importance") or "").lower(),
+                    gap.get("importance") or "",
+                )
+                note = (gap.get("note") or "").strip()
+                head = f"**{skill}**"
+                if importance:
+                    head += f" · {importance}"
+                st.markdown(f"- {head}" + (f" — {note}" if note else ""))
+            else:
+                st.markdown(f"- {gap}")
+
+    steps = report.get("roadmap_steps") or []
+    if steps:
+        st.subheader("Что сделать дальше")
+        for i, step in enumerate(steps, 1):
+            st.markdown(f"{i}. {step}")
 
 
 st.set_page_config(page_title="Персональный ИИ-коуч", layout="wide")
@@ -188,35 +244,152 @@ elif page == "План":
             st.metric("Прогресс %", (prog or {}).get("percent", 0))
 
 elif page == "Рынок / Skill-gap":
-    source = st.selectbox("Источник", ["hh", "kwork", "manual"])
+    source_labels = {
+        "hh": "hh.ru",
+        "kwork": "Kwork",
+        "flru": "FL.ru",
+        "yandex_uslugi": "Яндекс.Услуги",
+        "telegram": "Telegram канал",
+        "manual": "Ручной импорт",
+    }
+    source = st.selectbox(
+        "Источник",
+        list(source_labels.keys()),
+        format_func=lambda c: source_labels.get(c, c),
+    )
+    if source == "hh":
+        st.caption(
+            "hh.ru нужен одобренный app на https://dev.hh.ru/admin и "
+            "`HH_ACCESS_TOKEN` в `.env`. Пока заявка «рассматривается» — поиск недоступен "
+            "(будет 403). Пока используй Kwork / Яндекс / ручной импорт."
+        )
+    elif source == "yandex_uslugi":
+        st.caption(
+            "Яндекс.Услуги тянется через Playwright + `YANDEX_STORAGE_STATE`. "
+            "Если пусто — обнови сессию: Freelance `deploy/yandex_login_interactive.py`."
+        )
+    elif source == "flru":
+        st.caption(
+            "FL.ru пока httpx+cookies (часто ломается SmartCaptcha с VPS). "
+            "Нужен свежий `FLRU_STORAGE_STATE`."
+        )
+    elif source == "telegram":
+        st.caption(
+            "Поиск идёт по сохранённому списку каналов (публичное превью `t.me/s/…`; "
+            "с Telethon — приватные + больше истории). "
+            "Логин: `python scripts/telegram_login.py --list`."
+        )
+        saved = api("GET", f"{PREFIX}/market/telegram/channels") or {}
+        saved_channels = saved.get("channels") or []
+        # Sync editor BEFORE widget exists (Streamlit forbids mutating widget keys after).
+        if "tg_channels_pending" in st.session_state:
+            st.session_state["tg_channels_editor"] = st.session_state.pop(
+                "tg_channels_pending"
+            )
+        elif "tg_channels_editor" not in st.session_state:
+            st.session_state["tg_channels_editor"] = "\n".join(saved_channels)
+        channels_text = st.text_area(
+            "Список каналов (по одному в строке: @name, t.me/name или -100…)",
+            height=120,
+            key="tg_channels_editor",
+        )
+        if st.button("Сохранить список каналов"):
+            lines = [ln.strip() for ln in channels_text.splitlines() if ln.strip()]
+            out = api(
+                "PUT",
+                f"{PREFIX}/market/telegram/channels",
+                json={"channels": lines},
+            )
+            if out is not None:
+                st.session_state["tg_channels_pending"] = "\n".join(
+                    out.get("channels") or []
+                )
+                st.session_state["tg_channels_flash"] = (
+                    f"Сохранено каналов: {len(out.get('channels') or [])}"
+                )
+                st.rerun()
+        flash = st.session_state.pop("tg_channels_flash", None)
+        if flash:
+            st.success(flash)
     if source == "manual":
         title = st.text_input("Заголовок")
         description = st.text_area("Текст вакансии/заказа")
+        url = st.text_input("URL (опционально)", "")
         if st.button("Импорт") and title and description:
             item = api(
                 "POST",
                 f"{PREFIX}/market/import",
-                json={"title": title, "description": description},
+                json={"title": title, "description": description, "url": url or None},
             )
             st.session_state["market_item"] = item
     else:
-        query = st.text_input("Поиск", "Python Telegram FastAPI")
-        if st.button("Искать"):
-            items = api(
-                "POST",
-                f"{PREFIX}/market/search",
-                json={"source": source, "query": query, "limit": 5},
-            )
-            st.session_state["market_items"] = items or []
-        for item in st.session_state.get("market_items") or []:
-            if st.button(f"Выбрать: {item['title']}", key=item["id"]):
+        query_label = (
+            "Фильтр по словам (пусто = свежие посты из всех каналов списка)"
+            if source == "telegram"
+            else "Поиск (Kwork: как на сайте по keyword; пусто = свежая лента)"
+        )
+        query_placeholder = "вакансия python" if source == "telegram" else "Telegram"
+        query = st.text_input(
+            query_label,
+            value="",
+            placeholder=query_placeholder,
+        )
+        search_limit = 30 if source == "telegram" else 10
+        if st.button("Искать", type="primary"):
+            with st.spinner(f"Ищу на {source_labels.get(source, source)}…"):
+                items = api(
+                    "POST",
+                    f"{PREFIX}/market/search",
+                    json={
+                        "source": source,
+                        "query": query.strip(),
+                        "limit": search_limit,
+                    },
+                )
+            if items is None:
+                st.session_state["market_items"] = []
+            else:
+                st.session_state["market_items"] = items
+                st.session_state.pop("market_item", None)
+                if items:
+                    st.success(f"Найдено: {len(items)}")
+                    errs = (items[0].get("raw") or {}).get("channel_errors") or []
+                    for err in errs:
+                        st.warning(err)
+                else:
+                    st.warning(
+                        "Ничего не найдено. Очисти поиск или смени слова "
+                        "(фильтр по словам в title/description)."
+                    )
+        items = st.session_state.get("market_items") or []
+        if items:
+            st.subheader(f"Результаты ({len(items)})")
+        for item in items:
+            ch = (item.get("raw") or {}).get("channel_label") or ""
+            label = item.get("title") or item.get("id")
+            btn = f"[{ch}] {label}" if ch and ch not in str(label) else str(label)
+            if st.button(f"Выбрать: {btn}", key=f"pick_{item['id']}"):
                 st.session_state["market_item"] = item
+                st.rerun()
     item = st.session_state.get("market_item")
     if item:
-        st.write(item.get("title"))
-        if st.button("Skill-gap анализ"):
-            report = api("POST", f"{PREFIX}/market/skill-gap/{item['id']}")
-            st.json(report or {})
+        st.divider()
+        st.write(f"**Выбрано:** {item.get('title')}")
+        if item.get("url"):
+            st.caption(item["url"])
+        if item.get("description"):
+            st.write(item["description"][:800])
+        if st.button("Разобрать совпадение с профилем"):
+            with st.spinner("Анализ…"):
+                report = api("POST", f"{PREFIX}/market/skill-gap/{item['id']}")
+            if report:
+                st.session_state["skill_gap_report"] = report
+                st.session_state["skill_gap_item_id"] = item["id"]
+        report = st.session_state.get("skill_gap_report")
+        if report and st.session_state.get("skill_gap_item_id") == item["id"]:
+            st.divider()
+            st.subheader("Разбор совпадения")
+            render_skill_gap_report(report)
 
 elif page == "Коучинг":
     active = api("GET", f"{PREFIX}/profile/tracks/active")
@@ -265,24 +438,97 @@ elif page == "Коучинг":
 
 elif page == "Интервью":
     active = api("GET", f"{PREFIX}/profile/tracks/active")
-    role = st.text_input("Роль", "Python / AI разработчик")
-    if active and st.button("Старт mock interview"):
-        session = api(
-            "POST",
-            f"{PREFIX}/interview/start",
-            json={"track_id": active["id"], "role_title": role},
-        )
-        st.session_state["interview"] = session
-    session = st.session_state.get("interview")
-    if session:
-        answers = []
-        for i, q in enumerate(session.get("questions") or []):
-            st.write(f"**Q{i+1}.** {q['question']}")
-            answers.append(st.text_area(f"Ответ {i+1}", key=f"ans_{session['id']}_{i}"))
-        if st.button("Отправить на оценку"):
-            result = api(
-                "POST",
-                f"{PREFIX}/interview/{session['id']}/answers",
-                json={"answers": answers},
+    if not active:
+        st.warning("Нужен активный трек")
+    else:
+        if "interview" not in st.session_state:
+            restored = api(
+                "GET",
+                f"{PREFIX}/interview/latest",
+                params={"track_id": active["id"]},
             )
-            st.json(result or {})
+            if restored:
+                st.session_state["interview"] = restored
+                st.session_state["_interview_saved_answers"] = list(
+                    restored.get("answers") or []
+                )
+
+        session = st.session_state.get("interview")
+        default_role = (
+            (session or {}).get("role_title")
+            or "Python / AI разработчик"
+        )
+        role = st.text_input("Роль", default_role)
+        col_start, col_hint = st.columns([1, 2])
+        with col_start:
+            start_clicked = st.button("Старт mock interview")
+        with col_hint:
+            if session and not session.get("feedback"):
+                st.caption("Черновик подтягивается с сервера после обновления страницы.")
+        if start_clicked:
+            new_session = api(
+                "POST",
+                f"{PREFIX}/interview/start",
+                json={"track_id": active["id"], "role_title": role},
+            )
+            if new_session:
+                sid = new_session["id"]
+                for k in list(st.session_state.keys()):
+                    if str(k).startswith("ans_"):
+                        del st.session_state[k]
+                st.session_state["interview"] = new_session
+                st.session_state["_interview_saved_answers"] = list(
+                    new_session.get("answers") or []
+                )
+                for i in range(len(new_session.get("questions") or [])):
+                    saved = (new_session.get("answers") or [])
+                    st.session_state[f"ans_{sid}_{i}"] = (
+                        saved[i] if i < len(saved) else ""
+                    )
+                st.rerun()
+
+        session = st.session_state.get("interview")
+        if session:
+            sid = session["id"]
+            questions = session.get("questions") or []
+            saved_answers = list(session.get("answers") or [])
+            for i, q in enumerate(questions):
+                key = f"ans_{sid}_{i}"
+                if key not in st.session_state:
+                    st.session_state[key] = (
+                        saved_answers[i] if i < len(saved_answers) else ""
+                    )
+                st.write(f"**Q{i+1}.** {q['question']}")
+                st.text_area(f"Ответ {i+1}", key=key, height=120)
+
+            current = [
+                st.session_state.get(f"ans_{sid}_{i}", "")
+                for i in range(len(questions))
+            ]
+            prev = st.session_state.get("_interview_saved_answers")
+            if not session.get("feedback") and prev != current:
+                drafted = api(
+                    "PATCH",
+                    f"{PREFIX}/interview/{sid}/draft",
+                    json={"answers": current},
+                )
+                if drafted:
+                    st.session_state["interview"] = drafted
+                    st.session_state["_interview_saved_answers"] = current
+                    st.toast("Ответы сохранены", icon="💾")
+
+            if session.get("feedback"):
+                st.subheader("Оценка")
+                st.json(session["feedback"])
+            elif st.button("Отправить на оценку"):
+                result = api(
+                    "POST",
+                    f"{PREFIX}/interview/{sid}/answers",
+                    json={"answers": current},
+                )
+                if result:
+                    st.session_state["interview"] = result
+                    st.session_state["_interview_saved_answers"] = list(
+                        result.get("answers") or current
+                    )
+                    st.rerun()

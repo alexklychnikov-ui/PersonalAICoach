@@ -22,6 +22,9 @@ class TaskStatus(StrEnum):
 class MarketSource(StrEnum):
     HH = "hh"
     KWORK = "kwork"
+    FLRU = "flru"
+    YANDEX_USLUGI = "yandex_uslugi"
+    TELEGRAM = "telegram"
     MANUAL = "manual"
 
 

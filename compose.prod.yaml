@@ -26,6 +26,14 @@ services:
       MONGO_PORT: 27017
       API_BASE_URL: http://api:8000
       PUBLIC_BASE_URL: https://${DEPLOY_DOMAIN:-aicareercoach.alexklyvibe.ru}
+      KWORK_STORAGE_STATE: /secrets/kwork_storage.json
+      FLRU_STORAGE_STATE: /secrets/flru_storage.json
+      YANDEX_STORAGE_STATE: /secrets/yandex_storage.json
+      TELEGRAM_SESSION_PATH: /secrets/telegram.session.txt
+      KWORK_CATEGORY_IDS: "11,113,45,41"
+      YANDEX_LISTING_URL: "https://uslugi.yandex.ru/cab/orders?max_reactions_count=10&type=new"
+    volumes:
+      - ./secrets:/secrets:ro
     depends_on:
       mongo:
         condition: service_healthy
@@ -41,6 +49,14 @@ services:
       APP_ENV: production
       MONGO_HOST: mongo
       API_BASE_URL: http://api:8000
+      KWORK_STORAGE_STATE: /secrets/kwork_storage.json
+      FLRU_STORAGE_STATE: /secrets/flru_storage.json
+      YANDEX_STORAGE_STATE: /secrets/yandex_storage.json
+      TELEGRAM_SESSION_PATH: /secrets/telegram.session.txt
+      KWORK_CATEGORY_IDS: "11,113,45,41"
+      YANDEX_LISTING_URL: "https://uslugi.yandex.ru/cab/orders?max_reactions_count=10&type=new"
+    volumes:
+      - ./secrets:/secrets:ro
     depends_on:
       - api
     networks:

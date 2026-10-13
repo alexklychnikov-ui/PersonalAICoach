@@ -3,6 +3,11 @@ from datetime import UTC, datetime
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
+from app.adapters.telegram_market import (
+    TelegramMarketSource,
+    normalize_channel_list,
+)
+from app.config import get_settings
 from app.domain.models import (
     MarketItem,
     MarketSource,
@@ -12,6 +17,8 @@ from app.domain.models import (
 from app.ports.llm import LLMPort
 from app.ports.market import MarketSourcePort
 from app.services.profile_service import ProfileService
+
+_TG_CHANNELS_DOC = "telegram_channels"
 
 GAP_SYSTEM = """Ты карьерный аналитик. Сравни навыки кандидата с вакансией/заказом.
 Верни JSON:
@@ -42,11 +49,42 @@ class MarketService:
         adapter = self._sources.get(source)
         if not adapter:
             raise ValueError(f"Unknown market source: {source}")
-        items = await adapter.search(query, limit=limit)
+        if source == "telegram" and isinstance(adapter, TelegramMarketSource):
+            channels = await self.get_telegram_channels()
+            items = await adapter.search_channels(
+                channels, (query or "").strip(), limit=limit
+            )
+        else:
+            items = await adapter.search(query, limit=limit)
         saved: list[MarketItem] = []
         for item in items:
             saved.append(await self._upsert_item(item))
         return saved
+
+    async def get_telegram_channels(self) -> list[str]:
+        doc = await self._db.market_settings.find_one({"_id": _TG_CHANNELS_DOC})
+        if doc and isinstance(doc.get("channels"), list) and doc["channels"]:
+            return normalize_channel_list([str(x) for x in doc["channels"]])
+        seed = normalize_channel_list(
+            get_settings().telegram_channels.replace(",", "\n").splitlines()
+        )
+        if seed:
+            await self.set_telegram_channels(seed)
+        return seed
+
+    async def set_telegram_channels(self, channels: list[str]) -> list[str]:
+        normalized = normalize_channel_list(channels)
+        await self._db.market_settings.update_one(
+            {"_id": _TG_CHANNELS_DOC},
+            {
+                "$set": {
+                    "channels": normalized,
+                    "updated_at": datetime.now(UTC),
+                }
+            },
+            upsert=True,
+        )
+        return normalized
 
     async def import_manual(
         self, title: str, description: str, url: str | None = None

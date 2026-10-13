@@ -10,20 +10,38 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-async def poll_kwork() -> None:
+async def _poll_source(source: str) -> None:
     settings = get_settings()
-    if not settings.kwork_enabled:
-        return
     api = settings.api_base_url.rstrip("/")
     try:
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(
                 f"{api}{settings.api_prefix}/market/search",
-                json={"source": "kwork", "query": "", "limit": 10},
+                json={"source": source, "query": "", "limit": 10},
             )
-        logger.info("Kwork poll status=%s count=%s", resp.status_code, len(resp.json() or []))
+        logger.info(
+            "%s poll status=%s count=%s",
+            source,
+            resp.status_code,
+            len(resp.json() or []),
+        )
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Kwork poll failed: %s", exc)
+        logger.warning("%s poll failed: %s", source, exc)
+
+
+async def poll_kwork() -> None:
+    if get_settings().kwork_enabled:
+        await _poll_source("kwork")
+
+
+async def poll_flru() -> None:
+    if get_settings().flru_enabled:
+        await _poll_source("flru")
+
+
+async def poll_yandex() -> None:
+    if get_settings().yandex_uslugi_enabled:
+        await _poll_source("yandex_uslugi")
 
 
 async def weekly_checkin_ping() -> None:
@@ -57,7 +75,18 @@ async def main() -> None:
         seconds=max(60, settings.kwork_poll_interval_sec),
         id="kwork_poll",
     )
-    # Simple weekly Monday 10:00 — cron from CHECKIN_CRON if parsable
+    scheduler.add_job(
+        poll_flru,
+        "interval",
+        seconds=max(60, settings.flru_poll_interval_sec),
+        id="flru_poll",
+    )
+    scheduler.add_job(
+        poll_yandex,
+        "interval",
+        seconds=max(60, settings.yandex_poll_interval_sec),
+        id="yandex_poll",
+    )
     parts = settings.checkin_cron.split()
     if len(parts) == 5:
         minute, hour, _, _, day_of_week = parts

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.deps import market_service
 from app.domain.models import MarketItem, SkillGapReport
@@ -20,6 +20,14 @@ class ManualImportBody(BaseModel):
     url: str | None = None
 
 
+class TelegramChannelsBody(BaseModel):
+    channels: list[str] = Field(default_factory=list)
+
+
+class TelegramChannelsOut(BaseModel):
+    channels: list[str]
+
+
 @router.post("/search", response_model=list[MarketItem])
 async def search(
     body: SearchBody,
@@ -29,6 +37,24 @@ async def search(
         return await svc.search(body.source, body.query, body.limit)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/telegram/channels", response_model=TelegramChannelsOut)
+async def get_telegram_channels(
+    svc: MarketService = Depends(market_service),
+) -> TelegramChannelsOut:
+    return TelegramChannelsOut(channels=await svc.get_telegram_channels())
+
+
+@router.put("/telegram/channels", response_model=TelegramChannelsOut)
+async def put_telegram_channels(
+    body: TelegramChannelsBody,
+    svc: MarketService = Depends(market_service),
+) -> TelegramChannelsOut:
+    channels = await svc.set_telegram_channels(body.channels)
+    return TelegramChannelsOut(channels=channels)
 
 
 @router.post("/import", response_model=MarketItem)

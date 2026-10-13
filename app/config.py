@@ -44,6 +44,16 @@ class Settings(BaseSettings):
     telegram_webhook_path: str = "/webhook/tg"
     telegram_webhook_secret: str = ""
     telegram_use_webhook: bool = False
+    # Public channel/group preview (t.me/s/…) + optional Telethon user session
+    telegram_market_enabled: bool = True
+    telegram_channels: str = "Koteyka_Freelancer"
+    telegram_api_id: int = 0
+    telegram_api_hash: str = ""
+    # StringSession value OR leave empty and use telegram_session_path
+    telegram_session: str = ""
+    telegram_session_path: str = ""
+    # How many recent messages to pull per channel when Telethon is configured
+    telegram_history_limit: int = 80
 
     hh_enabled: bool = True
     hh_client_id: str = ""
@@ -55,8 +65,27 @@ class Settings(BaseSettings):
     kwork_enabled: bool = True
     kwork_login: str = ""
     kwork_password: str = ""
-    kwork_category_ids: str = "39"
+    # Category ids for https://kwork.ru/projects?c=…
+    # Freelance Auto-Responder polls only c=11 (Dev/IT). Extra ids help keyword search
+    # catch adjacent rubrics (e.g. 113/45 where Telegram scraping gigs often land).
+    kwork_category_ids: str = "11,113,45,41"
+    # Optional full listing URLs, pipe-separated (overrides category_ids if set)
+    kwork_listing_url: str = ""
+    kwork_storage_state: str = ""
     kwork_poll_interval_sec: int = 900
+
+    flru_enabled: bool = True
+    flru_listing_url: str = "https://www.fl.ru/projects/?kind=1&for_all=1"
+    flru_storage_state: str = ""
+    flru_poll_interval_sec: int = 1800
+
+    yandex_uslugi_enabled: bool = True
+    # Same feed as browser cab «Новые» (без жёсткого rubric filter)
+    yandex_listing_url: str = (
+        "https://uslugi.yandex.ru/cab/orders?max_reactions_count=10&type=new"
+    )
+    yandex_storage_state: str = ""
+    yandex_poll_interval_sec: int = 1800
 
     knowledge_base_enabled: bool = False
     mcp_lightrag_command: str = ""

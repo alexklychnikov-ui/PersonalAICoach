@@ -33,7 +33,7 @@
 |---|---|
 | **Онбординг** | Профиль (роль, навыки, зоны роста, часы/нед), upsert трека, переключение активного, seed из LightRAG-профиля |
 | **План** | AI-план (горизонты, навыки, ресурсы), чек-лист задач, Done, % прогресса |
-| **Рынок** | Поиск **hh.ru** / **Kwork**, ручной импорт текста вакансии/ТЗ, **skill-gap** (gaps / strengths / score) |
+| **Рынок** | Поиск **hh.ru** / **Kwork** / **FL.ru** / **Яндекс.Услуги**, ручной импорт, **skill-gap** |
 | **Коучинг** | Диалог в контексте трека; опционально KB → пометка `[KB]`; weekly check-in (mood / wins / blockers) |
 | **Mock interview** | Вопросы под роль → ответы → structured feedback |
 | **Telegram** | `/start` `/status` `/checkin`, check-in вида `4 \| wins \| blockers`, свободный текст → coaching turn |
@@ -51,7 +51,7 @@ Streamlit UI ──┐
 Telegram bot ──┼──► FastAPI (routers → services → ports/adapters) ──► MongoDB
 Worker ────────┘         │
                          ├── OpenAI (LLMPort)
-                         ├── hh / Kwork / manual (MarketSourcePort)
+                         ├── hh / Kwork / FL.ru / Яндекс.Услуги / manual
                          └── LightRAG MCP / DisabledKB (KnowledgeBasePort)
 ```
 
@@ -104,7 +104,7 @@ python scripts/smoke_test.py
 
 1. **Онбординг** → сохранить профиль и трек (или «Заполнить из LightRAG-профиля»).
 2. **План** → «Сгенерировать план» → отмечать задачи Done.
-3. **Рынок / Skill-gap** → `manual` / `hh` / `kwork` → анализ.
+3. **Рынок / Skill-gap** → `hh` / `kwork` / `flru` / `yandex_uslugi` / `manual` → анализ.
 4. **Коучинг** / **Интервью** — неделя и подготовка к собесу.
 5. Telegram — быстрый check-in и короткие вопросы.
 
@@ -123,8 +123,12 @@ python scripts/smoke_test.py
 | `KNOWLEDGE_BASE_ENABLED` | RAG on/off |
 | `MCP_LIGHTRAG_*` / `LIGHTRAG_*` | Подключение к LightRAG при `ENABLED=true` |
 | `HH_*` | Поиск вакансий (приложение на [dev.hh.ru](https://dev.hh.ru); см. `scripts/hh_get_token.py`) |
-| `KWORK_*` | Read-only рынок Kwork |
+| `KWORK_*` | Read-only Kwork (`c=11` Dev/IT; опционально `KWORK_STORAGE_STATE`) |
+| `FLRU_*` | FL.ru: `FLRU_STORAGE_STATE` = Playwright cookies (из Freelance Auto-Responder) |
+| `YANDEX_*` | Яндекс.Услуги: `YANDEX_STORAGE_STATE` + listing `cab/orders` |
 | `PUBLIC_BASE_URL` | Публичный URL (prod / webhook) |
+
+FL.ru и Яндекс.Услуги без актуальных cookies вернут пустой список. Сессии логинятся интерактивно в репо **Freelance Auto-Responder** (`deploy/*_login_interactive.py` → `data/*_storage.json`), путь к JSON кладётся в `.env` коуча.
 
 ---
 
@@ -171,7 +175,7 @@ Prod-сервисы: Caddy (HTTPS) → Streamlit + API; отдельно worker,
 
 **Дальше по продукту**
 
-- Адаптеры FL.ru / Habr Career / ATS (Greenhouse и т.п.)
+- Habr Career / ATS (Greenhouse и т.п.); Playwright-пул вместо сырого httpx+cookies для FL/Яндекс
 - Голос (STT/TTS) в mock interview
 - Загрузка документов в LightRAG из UI коуча
 - Более жёсткий weekly ritual: дайджест прогресса + авто-задачи из skill-gap

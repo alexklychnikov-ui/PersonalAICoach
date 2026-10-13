@@ -28,13 +28,24 @@ class HHMarketSource:
     async def search(self, query: str, *, limit: int = 10) -> list[MarketItem]:
         if not self._settings.hh_enabled:
             return []
-        params = {"text": query, "per_page": min(limit, 50), "page": 0}
+        if not self._settings.hh_access_token:
+            raise RuntimeError(
+                "hh.ru: нет HH_ACCESS_TOKEN. Заявка на dev.hh.ru ещё "
+                "«рассматривается» (до 15 рабочих дней). После одобрения: "
+                "scripts/hh_get_token.py app → токен в .env → redeploy."
+            )
+        params = {"text": query or "python", "per_page": min(limit, 50), "page": 0}
         try:
             async with httpx.AsyncClient(timeout=30) as client:
                 resp = await client.get(
                     f"{self._base}/vacancies",
                     params=params,
                     headers=self._headers(),
+                )
+            if resp.status_code == 403:
+                raise RuntimeError(
+                    "hh.ru вернул 403 Forbidden — токен/приложение не приняты "
+                    "или истекли. Проверь статус на https://dev.hh.ru/admin"
                 )
             resp.raise_for_status()
             items = resp.json().get("items", [])
@@ -53,9 +64,11 @@ class HHMarketSource:
                     )
                 )
             return result
+        except RuntimeError:
+            raise
         except Exception as exc:  # noqa: BLE001
             logger.warning("hh search failed: %s", exc)
-            return []
+            raise RuntimeError(f"hh.ru поиск упал: {exc}") from exc
 
     async def get_item(self, external_id: str) -> MarketItem | None:
         if not self._settings.hh_enabled:
