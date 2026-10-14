@@ -14,6 +14,7 @@ from app.adapters.market_urls import (
     flru_project_url,
 )
 from app.adapters.playwright_storage import load_httpx_cookies
+from app.adapters.query_expand import dedupe_items, filter_items_by_query
 from app.config import Settings
 from app.domain.models import MarketItem, MarketSource
 
@@ -156,15 +157,8 @@ class FlruMarketSource:
             )
             for c in cards
         ]
-        if query.strip():
-            tokens = [t for t in query.lower().split() if len(t) >= 2]
-            if tokens:
-                items = [
-                    i
-                    for i in items
-                    if any(t in i.title.lower() or t in i.description.lower() for t in tokens)
-                ]
-        return items[:limit]
+        items = filter_items_by_query(items, query)
+        return dedupe_items(items)[:limit]
 
     async def get_item(self, external_id: str) -> MarketItem | None:
         cookies = load_httpx_cookies(self._settings.flru_storage_state)

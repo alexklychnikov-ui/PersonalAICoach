@@ -3,6 +3,11 @@ import re
 
 import httpx
 
+from app.adapters.query_expand import (
+    dedupe_items,
+    remote_keywords_for_term,
+    split_query_terms,
+)
 from app.config import Settings
 from app.domain.models import MarketItem, MarketSource
 
@@ -25,6 +30,40 @@ class HHMarketSource:
             headers["Authorization"] = f"Bearer {self._settings.hh_access_token}"
         return headers
 
+    def _map_items(self, items: list[dict], *, limit: int) -> list[MarketItem]:
+        result: list[MarketItem] = []
+        for item in items[:limit]:
+            result.append(
+                MarketItem(
+                    source=MarketSource.HH,
+                    external_id=str(item["id"]),
+                    title=item.get("name") or "Vacancy",
+                    description=(item.get("snippet") or {}).get("requirement")
+                    or item.get("name")
+                    or "",
+                    url=item.get("alternate_url"),
+                    raw=item,
+                )
+            )
+        return result
+
+    async def _search_text(
+        self, client: httpx.AsyncClient, text: str, *, limit: int
+    ) -> list[MarketItem]:
+        params = {"text": text, "per_page": min(max(limit, 10), 50), "page": 0}
+        resp = await client.get(
+            f"{self._base}/vacancies",
+            params=params,
+            headers=self._headers(),
+        )
+        if resp.status_code == 403:
+            raise RuntimeError(
+                "hh.ru вернул 403 Forbidden — токен/приложение не приняты "
+                "или истекли. Проверь статус на https://dev.hh.ru/admin"
+            )
+        resp.raise_for_status()
+        return self._map_items(resp.json().get("items", []), limit=limit)
+
     async def search(self, query: str, *, limit: int = 10) -> list[MarketItem]:
         if not self._settings.hh_enabled:
             return []
@@ -34,36 +73,18 @@ class HHMarketSource:
                 "«рассматривается» (до 15 рабочих дней). После одобрения: "
                 "scripts/hh_get_token.py app → токен в .env → redeploy."
             )
-        params = {"text": query or "python", "per_page": min(limit, 50), "page": 0}
+        terms = split_query_terms(query)
         try:
             async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.get(
-                    f"{self._base}/vacancies",
-                    params=params,
-                    headers=self._headers(),
-                )
-            if resp.status_code == 403:
-                raise RuntimeError(
-                    "hh.ru вернул 403 Forbidden — токен/приложение не приняты "
-                    "или истекли. Проверь статус на https://dev.hh.ru/admin"
-                )
-            resp.raise_for_status()
-            items = resp.json().get("items", [])
-            result: list[MarketItem] = []
-            for item in items[:limit]:
-                result.append(
-                    MarketItem(
-                        source=MarketSource.HH,
-                        external_id=str(item["id"]),
-                        title=item.get("name") or "Vacancy",
-                        description=(item.get("snippet") or {}).get("requirement")
-                        or item.get("name")
-                        or "",
-                        url=item.get("alternate_url"),
-                        raw=item,
-                    )
-                )
-            return result
+                if not terms:
+                    return await self._search_text(client, "python", limit=limit)
+                merged: list[MarketItem] = []
+                for term in terms:
+                    for kw in remote_keywords_for_term(term):
+                        merged.extend(
+                            await self._search_text(client, kw, limit=limit)
+                        )
+                return dedupe_items(merged)[:limit]
         except RuntimeError:
             raise
         except Exception as exc:  # noqa: BLE001

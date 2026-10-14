@@ -15,6 +15,7 @@ from app.adapters.market_urls import (
     yandex_order_url,
 )
 from app.adapters.playwright_storage import load_httpx_cookies
+from app.adapters.query_expand import dedupe_items, filter_items_by_query
 from app.config import Settings
 from app.domain.models import MarketItem, MarketSource
 
@@ -80,19 +81,6 @@ def parse_yandex_order(html: str, order_id: str | None = None) -> dict:
     return {"project_id": pid, "title": title, "description": desc}
 
 
-def _filter_query(items: list[MarketItem], query: str) -> list[MarketItem]:
-    if not query.strip():
-        return items
-    tokens = [t for t in query.lower().split() if len(t) >= 2]
-    if not tokens:
-        return items
-    return [
-        i
-        for i in items
-        if any(t in i.title.lower() or t in i.description.lower() for t in tokens)
-    ]
-
-
 class YandexUslugiMarketSource:
     name = "yandex_uslugi"
 
@@ -155,8 +143,8 @@ class YandexUslugiMarketSource:
                 logger.warning("Yandex httpx fallback failed: %s", exc2)
                 return []
 
-        items = _filter_query(self._cards_to_items(cards), query)
-        return items[:limit]
+        items = filter_items_by_query(self._cards_to_items(cards), query)
+        return dedupe_items(items)[:limit]
 
     async def get_item(self, external_id: str) -> MarketItem | None:
         url = yandex_order_url(external_id)

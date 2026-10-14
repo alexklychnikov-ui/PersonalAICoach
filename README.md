@@ -33,10 +33,10 @@
 |---|---|
 | **Онбординг** | Профиль (роль, навыки, зоны роста, часы/нед), upsert трека, переключение активного, seed из LightRAG-профиля |
 | **План** | AI-план (горизонты, навыки, ресурсы), чек-лист задач, Done, % прогресса |
-| **Рынок** | Поиск **hh.ru** / **Kwork** / **FL.ru** / **Яндекс.Услуги**, ручной импорт, **skill-gap** |
+| **Рынок** | **hh.ru** / **Kwork** / **FL.ru** / **Яндекс.Услуги** / **Telegram-каналы** (редактируемый список) / manual → **skill-gap** (RU UI) |
 | **Коучинг** | Диалог в контексте трека; опционально KB → пометка `[KB]`; weekly check-in (mood / wins / blockers) |
-| **Mock interview** | Вопросы под роль → ответы → structured feedback |
-| **Telegram** | `/start` `/status` `/checkin`, check-in вида `4 \| wins \| blockers`, свободный текст → coaching turn |
+| **Mock interview** | Вопросы под роль → ответы с автосохранением черновика → structured feedback |
+| **Telegram bot** | Кнопочное меню: статус / прогресс / check-in-воронка / спросить коуча (`/start` открывает меню) |
 | **Worker** | Напоминания / poll рынка (отдельный процесс) |
 
 Без `OPENAI_API_KEY` поднимается **StubLLM** (smoke/демо).  
@@ -51,13 +51,13 @@ Streamlit UI ──┐
 Telegram bot ──┼──► FastAPI (routers → services → ports/adapters) ──► MongoDB
 Worker ────────┘         │
                          ├── OpenAI (LLMPort)
-                         ├── hh / Kwork / FL.ru / Яндекс.Услуги / manual
+                         ├── hh / Kwork / FL.ru / Яндекс.Услуги / Telegram (t.me/s + optional Telethon) / manual
                          └── LightRAG MCP / DisabledKB (KnowledgeBasePort)
 ```
 
 Паттерн: тонкие клиенты (UI/bot) → один API. Рынок и skill-gap работают без RAG; KB — feature flag.
 
-**Стек:** Python 3.12 · FastAPI · MongoDB · Streamlit · aiogram 3 · OpenAI · Docker Compose · Caddy (prod TLS).
+**Стек:** Python 3.12 · FastAPI · MongoDB · Streamlit · aiogram 3 · Telethon (опц.) · Playwright · OpenAI · Docker Compose · Caddy (prod TLS).
 
 ---
 
@@ -104,9 +104,11 @@ python scripts/smoke_test.py
 
 1. **Онбординг** → сохранить профиль и трек (или «Заполнить из LightRAG-профиля»).
 2. **План** → «Сгенерировать план» → отмечать задачи Done.
-3. **Рынок / Skill-gap** → `hh` / `kwork` / `flru` / `yandex_uslugi` / `manual` → анализ.
+3. **Рынок / Skill-gap** → `hh` / `kwork` / `flru` / `yandex_uslugi` / `telegram` / `manual` → анализ.
 4. **Коучинг** / **Интервью** — неделя и подготовка к собесу.
-5. Telegram — быстрый check-in и короткие вопросы.
+5. Telegram-бот — кнопки: статус / прогресс / check-in-воронка / спросить коуча.
+
+**Telegram-каналы (рынок):** в UI сохрани список `@channel` / `t.me/…` → **Искать** фильтрует по всем каналам; в карточке префикс `[@channel]`. Публичные — через `t.me/s/…`; глубже/приват — `python scripts/telegram_login.py --list` + `TELEGRAM_API_*` / `secrets/telegram.session.txt`.
 
 ---
 
@@ -120,15 +122,18 @@ python scripts/smoke_test.py
 | `MONGO_*` / `MONGO_URI` | MongoDB |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_OWNER_ID` | Бот только для владельца |
 | `TELEGRAM_USE_WEBHOOK` | `false` = polling (по умолчанию) |
+| `TELEGRAM_MARKET_ENABLED` / `TELEGRAM_CHANNELS` | Рынок по TG-каналам; дефолтный seed списка |
+| `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` / `TELEGRAM_SESSION*` | Опциональный Telethon (приват + больше истории) |
+| `TELEGRAM_HISTORY_LIMIT` | Сколько сообщений тянуть на канал через Telethon |
 | `KNOWLEDGE_BASE_ENABLED` | RAG on/off |
 | `MCP_LIGHTRAG_*` / `LIGHTRAG_*` | Подключение к LightRAG при `ENABLED=true` |
-| `HH_*` | Поиск вакансий (приложение на [dev.hh.ru](https://dev.hh.ru); см. `scripts/hh_get_token.py`) |
-| `KWORK_*` | Read-only Kwork (`c=11` Dev/IT; опционально `KWORK_STORAGE_STATE`) |
-| `FLRU_*` | FL.ru: `FLRU_STORAGE_STATE` = Playwright cookies (из Freelance Auto-Responder) |
+| `HH_*` | Поиск вакансий ([dev.hh.ru](https://dev.hh.ru); `scripts/hh_get_token.py`). Без токена API честно отдаёт 503 |
+| `KWORK_*` | Read-only Kwork (keyword + `KWORK_CATEGORY_IDS`; опц. `KWORK_STORAGE_STATE`) |
+| `FLRU_*` | FL.ru: `FLRU_STORAGE_STATE` = Playwright cookies |
 | `YANDEX_*` | Яндекс.Услуги: `YANDEX_STORAGE_STATE` + listing `cab/orders` |
 | `PUBLIC_BASE_URL` | Публичный URL (prod / webhook) |
 
-FL.ru и Яндекс.Услуги без актуальных cookies вернут пустой список. Сессии логинятся интерактивно в репо **Freelance Auto-Responder** (`deploy/*_login_interactive.py` → `data/*_storage.json`), путь к JSON кладётся в `.env` коуча.
+FL.ru и Яндекс.Услуги без актуальных cookies вернут пустой список. Сессии логинятся интерактивно в репо **Freelance Auto-Responder** (`deploy/*_login_interactive.py` → `data/*_storage.json`), путь к JSON кладётся в `.env` коуча. На VPS файлы кладутся в `secrets/` и монтируются в контейнеры.
 
 ---
 
@@ -138,8 +143,9 @@ FL.ru и Яндекс.Услуги без актуальных cookies верн�
 app/                 # FastAPI: routers, services, domain, ports, adapters, worker
 bot/                 # aiogram polling → internal API
 frontend/            # Streamlit dashboard
-scripts/             # deploy_vps.ps1, smoke_test, hh_get_token, tg_ping
+scripts/             # deploy_vps, smoke, hh_get_token, telegram_login, live checks
 tests/
+secrets/             # local/VPS: storage JSON + telegram.session.txt (gitignored)
 docker-compose.yml   # local
 compose.prod.yaml    # VPS: api, worker, bot, streamlit, mongo, caddy
 Caddyfile
@@ -166,19 +172,27 @@ Prod-сервисы: Caddy (HTTPS) → Streamlit + API; отдельно worker,
 
 ## Roadmap / перспектива
 
+**Сделано недавно**
+
+- Редактируемый список Telegram-каналов + поиск по всем с пометкой канала
+- Kwork keyword/categories; FL.ru / Яндекс.Услуги adapters; skill-gap RU UI
+- HH: явная ошибка без токена / на 403; interview draft autosave
+- Telegram-бот: кнопочное меню и check-in воронкой (без `4|wins|blockers`)
+
 **Ближайшее**
 
 - Живой hh после модерации приложения и app-token
+- Telethon-сессия на VPS для приватных TG-каналов (если нужна глубина)
 - Rate limit на LLM-эндпоинты, `ai_audit_log`, бэкап Mongo
 - Telegram webhook mode на домене коуча
 - Disclaimer / Basic Auth на UI для single-user
 
 **Дальше по продукту**
 
-- Habr Career / ATS (Greenhouse и т.п.); Playwright-пул вместо сырого httpx+cookies для FL/Яндекс
+- Habr Career / ATS; устойчивый Playwright-пул для FL/Яндекс
 - Голос (STT/TTS) в mock interview
 - Загрузка документов в LightRAG из UI коуча
-- Более жёсткий weekly ritual: дайджест прогресса + авто-задачи из skill-gap
+- Weekly ritual: дайджест прогресса + авто-задачи из skill-gap
 
 **Масштаб (если выйдет за личный MVP)**
 

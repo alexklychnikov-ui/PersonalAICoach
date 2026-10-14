@@ -31,6 +31,192 @@ _GAP_IMPORTANCE_RU = {
     "nice_to_have": "желательно",
 }
 
+_TRACK_TYPE_RU = {
+    "employment": "найм",
+    "side_income": "доп. доход",
+    "first_freelance_order": "первые заказы",
+    "custom": "своя цель",
+}
+
+_TASK_STATUS_RU = {
+    "todo": "к выполнению",
+    "in_progress": "в работе",
+    "done": "готово",
+    "skipped": "пропущено",
+}
+
+_ENV_RU = {
+    "production": "продакшен",
+    "development": "разработка",
+    "staging": "стейджинг",
+    "test": "тест",
+}
+
+
+def _fmt_dt(value) -> str:
+    if not value:
+        return "не задано"
+    text = str(value).replace("T", " ").replace("Z", "")
+    if "." in text:
+        text = text.split(".", 1)[0]
+    return text[:19]
+
+
+def _yes_no(flag: bool) -> str:
+    return "да" if flag else "нет"
+
+
+def render_health(data: dict | None) -> None:
+    if not data:
+        st.error("Не удалось получить статус API")
+        return
+    status = data.get("status") or "—"
+    status_ru = {
+        "ok": "всё в порядке",
+        "degraded": "частично недоступно",
+        "error": "ошибка",
+    }.get(str(status), str(status))
+    st.markdown(f"**Состояние:** {status_ru}")
+    st.markdown(f"**Приложение:** {data.get('app') or '—'}")
+    env = str(data.get("env") or "")
+    st.markdown(f"**Окружение:** {_ENV_RU.get(env, env or '—')}")
+
+    mongo = data.get("mongo") or {}
+    if mongo.get("ok"):
+        st.success("MongoDB: подключена")
+    else:
+        st.error(f"MongoDB: нет связи — {mongo.get('error') or 'неизвестно'}")
+
+    kb = data.get("knowledge_base") or {}
+    if kb.get("enabled"):
+        if kb.get("ok"):
+            st.success(f"База знаний: включена ({kb.get('detail') or 'ok'})")
+        else:
+            st.warning(f"База знаний: сбой — {kb.get('detail') or 'ошибка'}")
+    else:
+        st.info("База знаний: выключена")
+
+    if data.get("llm_configured"):
+        st.success("LLM: ключ настроен")
+    else:
+        st.warning("LLM: ключ не задан (работает StubLLM)")
+
+
+def render_track(track: dict | None) -> None:
+    if not track:
+        st.info("Активного трека нет")
+        return
+    type_code = track.get("type") or ""
+    type_ru = _TRACK_TYPE_RU.get(type_code, type_code or "—")
+    status = track.get("status") or ""
+    status_ru = {
+        "active": "активен",
+        "paused": "на паузе",
+        "done": "завершён",
+        "archived": "в архиве",
+    }.get(str(status), str(status) or "—")
+    mark = "🟢 активный" if track.get("is_active") else "⚪ неактивный"
+
+    st.markdown(f"**{track.get('title') or 'Без названия'}** · {mark}")
+    st.markdown(f"**Тип цели:** {type_ru}")
+    st.markdown(f"**Статус:** {status_ru}")
+    st.markdown(f"**Часов в неделю:** {track.get('weekly_hours_budget') or '—'}")
+    deadline = track.get("deadline")
+    st.markdown(f"**Дедлайн:** {_fmt_dt(deadline) if deadline else 'не задан'}")
+    st.markdown(f"**Создан:** {_fmt_dt(track.get('created_at'))}")
+    st.markdown(f"**Активирован:** {_fmt_dt(track.get('activated_at'))}")
+
+    kpis = track.get("kpis") or []
+    if kpis:
+        st.markdown("**KPI:**")
+        for kpi in kpis:
+            st.markdown(f"- {kpi}")
+
+
+def render_plan(plan: dict | None) -> None:
+    if not plan:
+        st.info("Плана пока нет")
+        return
+    summary = (plan.get("summary") or "").strip()
+    if summary:
+        st.markdown(summary)
+
+    phases = plan.get("phases") or []
+    if phases:
+        st.subheader("Этапы")
+        for i, phase in enumerate(phases, 1):
+            name = phase.get("name") or f"Этап {i}"
+            horizon = phase.get("horizon") or ""
+            head = f"**{i}. {name}**"
+            if horizon:
+                head += f" · горизонт: {horizon}"
+            st.markdown(head)
+            goals = phase.get("goals") or []
+            if goals:
+                st.markdown("Цели:")
+                for g in goals:
+                    st.markdown(f"- {g}")
+            skills = phase.get("skills") or []
+            if skills:
+                st.markdown("Навыки: " + ", ".join(skills))
+
+    skills = plan.get("skills_to_develop") or []
+    if skills:
+        st.subheader("Навыки к развитию")
+        for s in skills:
+            st.markdown(f"- {s}")
+
+    resources = plan.get("resources") or []
+    if resources:
+        st.subheader("Ресурсы")
+        for r in resources:
+            title = r.get("title") or "ресурс"
+            kind = r.get("kind") or ""
+            hours = r.get("estimated_hours")
+            url = r.get("url")
+            line = f"- **{title}**"
+            extras = []
+            if kind:
+                extras.append(kind)
+            if hours is not None:
+                extras.append(f"~{hours} ч")
+            if extras:
+                line += f" ({', '.join(extras)})"
+            if url:
+                line += f" — {url}"
+            st.markdown(line)
+
+    checklist = plan.get("checklist") or []
+    if checklist:
+        st.subheader("Чек-лист")
+        for item in checklist:
+            st.markdown(f"- {item}")
+
+    st.caption(f"Сгенерирован: {_fmt_dt(plan.get('generated_at'))}")
+
+
+def render_interview_feedback(feedback: dict | None) -> None:
+    if not feedback:
+        st.info("Оценки пока нет")
+        return
+    score = feedback.get("score")
+    if score is not None:
+        st.metric("Оценка", f"{score} из 100")
+    summary = (feedback.get("summary") or "").strip()
+    if summary:
+        st.subheader("Краткий вывод")
+        st.write(summary)
+    strengths = feedback.get("strengths") or []
+    if strengths:
+        st.subheader("Сильные стороны")
+        for line in strengths:
+            st.markdown(f"- {line}")
+    improvements = feedback.get("improvements") or []
+    if improvements:
+        st.subheader("Что улучшить")
+        for line in improvements:
+            st.markdown(f"- {line}")
+
 
 def render_skill_gap_report(report: dict) -> None:
     score = report.get("match_score")
@@ -89,8 +275,8 @@ page = st.sidebar.radio(
 )
 
 if page == "Статус":
-    data = api("GET", "/health")
-    st.json(data or {})
+    st.subheader("Состояние системы")
+    render_health(api("GET", "/health"))
 
 elif page == "Онбординг":
     defaults = api("GET", f"{PREFIX}/profile/defaults") or {}
@@ -207,7 +393,7 @@ elif page == "Онбординг":
             st.rerun()
 
     st.subheader("Активный трек")
-    st.json(active or {})
+    render_track(active)
 
 elif page == "План":
     active = api("GET", f"{PREFIX}/profile/tracks/active")
@@ -220,16 +406,17 @@ elif page == "План":
         plans = api("GET", f"{PREFIX}/plans", params={"track_id": active["id"]}) or []
         if plans:
             st.subheader("Последний план")
-            st.write(plans[0].get("summary"))
-            st.json(plans[0])
+            render_plan(plans[0])
             tasks = api("GET", f"{PREFIX}/plans/tasks", params={"plan_id": plans[0]["id"]}) or []
             st.subheader("Задачи")
             for t in tasks:
                 cols = st.columns([4, 1])
-                is_done = t.get("status") == "done"
-                cols[0].write(f"{t['title']} — `{t['status']}`")
+                status = t.get("status") or ""
+                status_ru = _TASK_STATUS_RU.get(str(status), str(status))
+                is_done = status == "done"
+                cols[0].markdown(f"**{t['title']}** — {status_ru}")
                 if cols[1].button(
-                    "Done",
+                    "Готово",
                     key=f"done_{t['id']}",
                     disabled=is_done,
                     help="Уже выполнено" if is_done else "Отметить выполненным",
@@ -326,9 +513,18 @@ elif page == "Рынок / Skill-gap":
         query_label = (
             "Фильтр по словам (пусто = свежие посты из всех каналов списка)"
             if source == "telegram"
-            else "Поиск (Kwork: как на сайте по keyword; пусто = свежая лента)"
+            else "Поиск (слова по отдельности + склонения; пусто = свежая лента)"
         )
-        query_placeholder = "вакансия python" if source == "telegram" else "Telegram"
+        query_placeholder = (
+            "RAG база знаний"
+            if source in ("telegram", "kwork", "yandex_uslugi", "flru", "hh")
+            else "Telegram"
+        )
+        if source != "manual":
+            st.caption(
+                "Каждое слово ищется отдельно (OR), с учётом склонений "
+                "(программа/программу/программы). Дубликаты схлопываются."
+            )
         query = st.text_input(
             query_label,
             value="",
@@ -421,8 +617,8 @@ elif page == "Коучинг":
         st.subheader("Check-in")
         with st.form("checkin"):
             mood = st.slider("Настроение", 1, 5, 3)
-            wins = st.text_input("Wins")
-            blockers = st.text_input("Blockers")
+            wins = st.text_input("Что получилось")
+            blockers = st.text_input("Что мешает")
             if st.form_submit_button("Сохранить"):
                 api(
                     "POST",
@@ -434,7 +630,7 @@ elif page == "Коучинг":
                         "blockers": blockers,
                     },
                 )
-                st.success("OK")
+                st.success("Check-in сохранён")
 
 elif page == "Интервью":
     active = api("GET", f"{PREFIX}/profile/tracks/active")
@@ -519,7 +715,7 @@ elif page == "Интервью":
 
             if session.get("feedback"):
                 st.subheader("Оценка")
-                st.json(session["feedback"])
+                render_interview_feedback(session["feedback"])
             elif st.button("Отправить на оценку"):
                 result = api(
                     "POST",

@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 
 import httpx
 
+from app.adapters.query_expand import text_matches_query
 from app.config import Settings
 from app.domain.models import MarketItem, MarketSource
 
@@ -131,11 +132,10 @@ def parse_telegram_preview(html: str) -> list[dict[str, str]]:
 def _filter_keywords(cards: list[dict[str, str]], keywords: str) -> list[dict[str, str]]:
     if not keywords:
         return cards
-    words = [w.lower() for w in re.split(r"\s+", keywords) if w]
     return [
         c
         for c in cards
-        if all(w in (c["title"] + " " + c["description"]).lower() for w in words)
+        if text_matches_query(f"{c['title']} {c['description']}", keywords)
     ]
 
 

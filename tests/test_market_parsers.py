@@ -5,6 +5,12 @@ from app.adapters.market_urls import (
     extract_kwork_project_id,
     extract_yandex_order_id,
 )
+from app.adapters.query_expand import (
+    expand_word_forms,
+    split_query_terms,
+    text_matches_query,
+    text_matches_term,
+)
 from app.adapters.telegram_market import (
     normalize_channel_list,
     parse_channel_query,
@@ -100,3 +106,18 @@ def test_normalize_channel_list():
             "trash!!!",
         ]
     ) == ["Koteyka_Freelancer", "OtherChannel", "-1001451211985"]
+
+
+def test_split_query_terms():
+    assert split_query_terms("RAG база знаний") == ["RAG", "база", "знаний"]
+    assert split_query_terms("  программа  ") == ["программа"]
+
+
+def test_expand_and_match_declensions():
+    forms = {f.lower() for f in expand_word_forms("программа")}
+    assert "программа" in forms
+    assert any(f.startswith("программ") and f != "программа" for f in forms)
+    assert text_matches_term("Нужно написать программу для Arduino", "программа")
+    assert text_matches_term("База знаний по RAG", "знаний")
+    assert text_matches_query("Написать программу", "RAG база знаний") is False
+    assert text_matches_query("Написать программу", "программа arduino") is True

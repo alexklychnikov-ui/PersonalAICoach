@@ -12,6 +12,12 @@ import httpx
 
 from app.adapters.market_urls import BROWSER_UA, kwork_project_view_url
 from app.adapters.playwright_storage import load_httpx_cookies
+from app.adapters.query_expand import (
+    card_matches_query,
+    dedupe_cards,
+    remote_keywords_for_term,
+    split_query_terms,
+)
 from app.config import Settings
 from app.domain.models import MarketItem, MarketSource
 
@@ -225,14 +231,26 @@ class KworkMarketSource:
             return []
         return parse_kwork_listing(resp.text)
 
+    async def _keyword_pages(
+        self, client: httpx.AsyncClient, keyword: str, *, pages: int = 2
+    ) -> list[dict]:
+        cards: list[dict] = []
+        for page in range(1, pages + 1):
+            url = f"https://kwork.ru/projects?{urlencode({'keyword': keyword, 'page': page})}"
+            resp = await client.get(
+                url, headers={"User-Agent": BROWSER_UA, "Accept": "text/html"}
+            )
+            if resp.status_code < 400:
+                cards.extend(parse_kwork_listing(resp.text))
+        return cards
+
     async def _search_keyword_html(
         self, client: httpx.AsyncClient, query: str, *, pages: int = 3
     ) -> list[dict]:
-        """Site search + category feeds.
+        """Per-term keyword search + category feed filtered by morph forms.
 
-        Freelance Auto-Responder only polls ``c=11``. Keyword SSR often misses
-        adjacent rubrics (e.g. project 3266601 lives in c=113/45, not c=11), so
-        we also pull configured category listings and filter by query tokens.
+        «RAG база знаний» → отдельные keyword-запросы по каждому слову
+        (и нормальной форме), затем union без дублей.
         """
         cards: list[dict] = []
         seen: set[str] = set()
@@ -245,33 +263,26 @@ class KworkMarketSource:
                 seen.add(pid)
                 cards.append(card)
 
-        # 1) Global keyword pages (как строка поиска на kwork.ru)
-        for page in range(1, pages + 1):
-            url = f"https://kwork.ru/projects?{urlencode({'keyword': query, 'page': page})}"
-            resp = await client.get(
-                url, headers={"User-Agent": BROWSER_UA, "Accept": "text/html"}
-            )
-            if resp.status_code < 400:
-                _add(parse_kwork_listing(resp.text))
+        terms = split_query_terms(query) or [query.strip()]
+        # 1) Remote keyword search per term (+ lemma) — дедуп по project_id
+        for term in terms:
+            for kw in remote_keywords_for_term(term):
+                _add(await self._keyword_pages(client, kw, pages=pages))
 
-        # 2) Category feeds (HTML wants[] + API) — API alone often misses SSR cards.
-        tokens = [t for t in query.lower().split() if len(t) >= 2]
+        # 2) Category feeds — local OR-match with declensions
         for cat in self._category_ids():
             got = await self._search_html(client, cat)
             got.extend(await self._search_api(client, cat, limit=40, pages=2))
-            if tokens:
-                got = [
-                    c
-                    for c in got
-                    if any(
-                        t in (c.get("title") or "").lower()
-                        or t in (c.get("description") or "").lower()
-                        for t in tokens
-                    )
-                ]
+            got = [c for c in got if card_matches_query(c, query)]
             _add(got)
 
-        logger.info("kwork keyword=%r cards=%s cats=%s", query, len(cards), self._category_ids())
+        logger.info(
+            "kwork query=%r terms=%s cards=%s cats=%s",
+            query,
+            terms,
+            len(cards),
+            self._category_ids(),
+        )
         return cards
 
     def _to_items(self, cards: list[dict]) -> list[MarketItem]:
@@ -308,21 +319,12 @@ class KworkMarketSource:
                 cookies=cookies,
             ) as client:
                 if q:
-                    cards = await self._search_keyword_html(client, q, pages=3)
-                    # Soft client filter only if keyword page returned mixed noise
-                    tokens = [t for t in q.lower().split() if len(t) >= 2]
-                    if tokens and cards:
-                        filtered = [
-                            c
-                            for c in cards
-                            if any(
-                                t in (c.get("title") or "").lower()
-                                or t in (c.get("description") or "").lower()
-                                for t in tokens
-                            )
-                        ]
-                        if filtered:
-                            cards = filtered
+                    cards = await self._search_keyword_html(client, q, pages=2)
+                    # Soft filter: keep cards matching any term/form (OR)
+                    filtered = [c for c in cards if card_matches_query(c, q)]
+                    if filtered:
+                        cards = filtered
+                    cards = dedupe_cards(cards)
                 else:
                     for cat in self._category_ids()[:3]:
                         got = await self._search_api(client, cat, limit * 3, pages=3)
