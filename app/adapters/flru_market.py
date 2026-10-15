@@ -60,7 +60,10 @@ def parse_flru_listing(html: str, *, skip_closed: bool = True) -> list[dict]:
         seen.add(pid)
         budget = None
         bm = re.search(
-            r"(\u043f\u043e \u0434\u043e\u0433\u043e\u0432\u043e\u0440\u0435\u043d\u043d\u043e\u0441\u0442\u0438|\d[\d\s]*\s*\u0440\u0443\u0431)",
+            r"("
+            r"\u043f\u043e \u0434\u043e\u0433\u043e\u0432\u043e\u0440"
+            r"\u0435\u043d\u043d\u043e\u0441\u0442\u0438"
+            r"|\d[\d\s]*\s*\u0440\u0443\u0431)",
             trail,
             flags=re.I,
         )

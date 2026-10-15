@@ -157,13 +157,25 @@ class YandexUslugiMarketSource:
                     storage_state_path=state,
                     evaluate_js="""
                     () => {
-                      const title = (document.querySelector('h1')?.textContent || document.title || '')
+                      const h = document.querySelector('h1')?.textContent;
+                      const title = (h || document.title || '')
                         .replace(/\\s+/g, ' ').trim();
-                      const root = document.querySelector('main, article') || document.body;
-                      const description = (root?.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 8000);
-                      return [{ project_id: location.pathname.match(
-                        /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i)?.[0]?.toLowerCase()
-                        || null, url: location.href.split('?')[0], title, description, budget_text: null }];
+                      const root = document.querySelector('main, article')
+                        || document.body;
+                      const raw = root?.innerText || '';
+                      const description = raw.replace(/\\s+/g, ' ')
+                        .trim().slice(0, 8000);
+                      const uuid =
+                        /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+                      const project_id = location.pathname.match(uuid)
+                        ?.[0]?.toLowerCase() || null;
+                      return [{
+                        project_id,
+                        url: location.href.split('?')[0],
+                        title,
+                        description,
+                        budget_text: null,
+                      }];
                     }
                     """,
                     wait_ms=3000,

@@ -171,8 +171,16 @@ async def run_polling() -> None:
             plans = await client.get(
                 f"{base}{prefix}/plans", params={"track_id": track_id}
             )
-        percent = (prog.json() or {}).get("percent", 0) if prog.status_code == 200 else "—"
-        plan_list = plans.json() if plans.status_code == 200 and isinstance(plans.json(), list) else []
+        percent = (
+            (prog.json() or {}).get("percent", 0)
+            if prog.status_code == 200
+            else "—"
+        )
+        plan_list = (
+            plans.json()
+            if plans.status_code == 200 and isinstance(plans.json(), list)
+            else []
+        )
         summary = ""
         if plan_list:
             summary = (plan_list[0].get("summary") or "").strip()
