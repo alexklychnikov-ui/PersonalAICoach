@@ -1,14 +1,39 @@
+Личный AI-коуч для карьеры
+
 # Personal AI Coach
 
-Личный AI-коуч для карьеры: один активный трек-цель, структурированный план, skill-gap по рынку, weekly coaching, mock interview и Telegram check-in. Опционально обогащает ответы контекстом из LightRAG (MCP), без жёсткой зависимости от RAG.
+Один активный трек-цель, структурированный план, skill-gap по рынку, weekly coaching, mock interview и Telegram check-in. Опционально обогащает ответы контекстом из LightRAG (MCP), без жёсткой зависимости от RAG.
+
+![AI-коуч для карьерного роста](Docs/Mockups/career_coach_mockup.png)
 
 | | |
 |---|---|
 | **Demo** | https://aicareercoach.alexklyvibe.ru/ |
 | **Telegram** | [@alexvibeaipersonalcoach_bot](https://t.me/alexvibeaipersonalcoach_bot) |
 | **API docs** | `/docs` на API-сервисе |
+| **Руководство** | [Docs/userManual.md](Docs/userManual.md) |
 
 > Single-user MVP: без регистрации и multi-tenant. Бот отвечает только `TELEGRAM_OWNER_ID`.
+
+### Скриншоты и видео
+
+**Видео**
+
+- [Работа дашборда](Docs/Videos/dashboard_demo.mp4) — онбординг, план, рынок (Kwork / Telegram / hh), skill-gap, коучинг, интервью, статус
+- [Работа в Telegram](Docs/Videos/telegram_bot_demo.mp4) — меню бота, статус / прогресс / check-in / коуч
+
+**Скриншоты UI** ([Docs/Screenshots/](Docs/Screenshots/))
+
+| Раздел | Файл |
+|---|---|
+| Онбординг | [01_onboarding.png](Docs/Screenshots/01_onboarding.png) |
+| План | [02_plan.png](Docs/Screenshots/02_plan.png) |
+| Рынок / Skill-gap (Kwork) | [03_market_skillgap.png](Docs/Screenshots/03_market_skillgap.png) |
+| Telegram-каналы | [03b_market_telegram_channels.png](Docs/Screenshots/03b_market_telegram_channels.png) |
+| hh.ru | [03c_market_hh.png](Docs/Screenshots/03c_market_hh.png) |
+| Коучинг | [04_coaching.png](Docs/Screenshots/04_coaching.png) |
+| Интервью | [05_interview.png](Docs/Screenshots/05_interview.png) |
+| Статус | [06_status.png](Docs/Screenshots/06_status.png) |
 
 ---
 
@@ -143,6 +168,7 @@ FL.ru и Яндекс.Услуги без актуальных cookies верн�
 app/                 # FastAPI: routers, services, domain, ports, adapters, worker
 bot/                 # aiogram polling → internal API
 frontend/            # Streamlit dashboard
+Docs/                # userManual, Mockups, Screenshots, Videos
 scripts/             # deploy_vps, smoke, hh_get_token, telegram_login, live checks
 tests/
 secrets/             # local/VPS: storage JSON + telegram.session.txt (gitignored)

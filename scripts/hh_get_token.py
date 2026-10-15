@@ -30,7 +30,8 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
 
-TOKEN_URL = "https://api.hh.ru/oauth/token"
+# OAuth token endpoint is on hh.ru (api.hh.ru/oauth/token → 405).
+TOKEN_URL = "https://hh.ru/oauth/token"
 AUTHORIZE_URL = "https://hh.ru/oauth/authorize"
 ME_URL = "https://api.hh.ru/me"
 

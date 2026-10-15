@@ -446,9 +446,8 @@ elif page == "Рынок / Skill-gap":
     )
     if source == "hh":
         st.caption(
-            "hh.ru нужен одобренный app на https://dev.hh.ru/admin и "
-            "`HH_ACCESS_TOKEN` в `.env`. Пока заявка «рассматривается» — поиск недоступен "
-            "(будет 403). Пока используй Kwork / Яндекс / ручной импорт."
+            "hh.ru: поиск по API + локальный фильтр (слово/склонение должно "
+            "быть в названии или сниппете). Нужен `HH_ACCESS_TOKEN`."
         )
     elif source == "yandex_uslugi":
         st.caption(

@@ -5,6 +5,7 @@ import httpx
 
 from app.adapters.query_expand import (
     dedupe_items,
+    filter_items_by_query,
     remote_keywords_for_term,
     split_query_terms,
 )
@@ -33,14 +34,20 @@ class HHMarketSource:
     def _map_items(self, items: list[dict], *, limit: int) -> list[MarketItem]:
         result: list[MarketItem] = []
         for item in items[:limit]:
+            snippet = item.get("snippet") or {}
+            desc_parts = [
+                snippet.get("requirement") or "",
+                snippet.get("responsibility") or "",
+            ]
+            description = " ".join(p for p in desc_parts if p).strip() or (
+                item.get("name") or ""
+            )
             result.append(
                 MarketItem(
                     source=MarketSource.HH,
                     external_id=str(item["id"]),
                     title=item.get("name") or "Vacancy",
-                    description=(item.get("snippet") or {}).get("requirement")
-                    or item.get("name")
-                    or "",
+                    description=description,
                     url=item.get("alternate_url"),
                     raw=item,
                 )
@@ -77,14 +84,16 @@ class HHMarketSource:
         try:
             async with httpx.AsyncClient(timeout=30) as client:
                 if not terms:
-                    return await self._search_text(client, "python", limit=limit)
+                    return await self._search_text(client, "", limit=limit)
+                # HH API is fuzzy — pull more, then keep only literal/morph hits
+                pull = min(max(limit * 5, 20), 50)
                 merged: list[MarketItem] = []
                 for term in terms:
                     for kw in remote_keywords_for_term(term):
                         merged.extend(
-                            await self._search_text(client, kw, limit=limit)
+                            await self._search_text(client, kw, limit=pull)
                         )
-                return dedupe_items(merged)[:limit]
+                return filter_items_by_query(dedupe_items(merged), query)[:limit]
         except RuntimeError:
             raise
         except Exception as exc:  # noqa: BLE001
